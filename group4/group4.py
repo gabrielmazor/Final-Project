@@ -10,7 +10,6 @@ import random
 
 from negmas.outcomes import Outcome
 from negmas.sao import ResponseType, SAONegotiator, SAOResponse, SAOState
-import time
 
 
 class Group4(SAONegotiator):
@@ -91,8 +90,12 @@ class Group4(SAONegotiator):
         if(offer in best_outcomes):
             return True
         
-        if process > 0.4:
+        if process > 0.8:
             if self.ufun(offer) > (2 * self.ufun.reserved_value):
+                return True
+        
+        if process > 0.95:
+            if self.ufun(offer) > (self.ufun.reserved_value):
                 return True
         
         return False
@@ -121,12 +124,14 @@ class Group4(SAONegotiator):
         assert self.ufun and self.opponent_ufun
 
         offer = state.current_offer
-
+        process, _, _ = self.get_step(state)
 
         # If the opponent's ufun is lower than the current reserved value, 
         if self.opponent_ufun(offer) < self.partner_reserved_value:
             self.partner_reserved_value = float(self.opponent_ufun(offer)) / 2
-
+        
+        else:
+            self.partner_reserved_value = 0.5 * process 
         # update rational_outcomes by removing the outcomes that are below the reservation value of the opponent
         # Watch out: if the reserved value decreases, this will not add any outcomes.
         self.rational_outcomes = self.get_outcomes()
@@ -140,7 +145,6 @@ class Group4(SAONegotiator):
         return progress, step, total # check later what actually needed to return
     
     def get_outcomes(self): 
-        start_t = time.time()
         outcomes = [
             x for x in self.nmi.outcome_space.enumerate_or_sample()  # enumerates outcome space when finite, samples when infinite
             if self.ufun(x) > self.ufun.reserved_value
@@ -152,7 +156,6 @@ class Group4(SAONegotiator):
         ]
 
         possible_outcomes = sorted(possible_outcomes, key=lambda o: self.ufun(o), reverse=True)
-        print(f"time to run the get_outcomes function = {time.time() - start_t}")
         return possible_outcomes
         
     def track_opponent_behavior(self, state: SAOState) -> None:
@@ -181,10 +184,7 @@ class Group4(SAONegotiator):
             self.opponent_style = None
 
 
-
-
 # if you want to do a very small test, use the parameter small=True here. Otherwise, you can use the default parameters.
 if __name__ == "__main__":
     from helpers.runner import run_a_tournament
-
-    run_a_tournament(Group4, small=True, debug=True)
+    run_a_tournament(Group4, small=True, debug=False)
