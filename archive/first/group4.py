@@ -17,8 +17,7 @@ class Group4(SAONegotiator):
     Your agent code. This is the ONLY class you need to implement
     """
 
-    rational_outcomes = []
-
+    rational_outcomes = tuple()
 
     partner_reserved_value = 0
 
@@ -35,9 +34,14 @@ class Group4(SAONegotiator):
         if self.ufun is None:
             return
 
-        self.rational_outcomes = self.get_outcomes()
+        self.rational_outcomes = [
+            _
+            for _ in self.nmi.outcome_space.enumerate_or_sample()  # enumerates outcome space when finite, samples when infinite
+            if self.ufun(_) > self.ufun.reserved_value
+        ]
+
         # Estimate the reservation value, as a first guess, the opponent has the same reserved_value as you
-        self.partner_reserved_value = 0.05
+        self.partner_reserved_value = self.ufun.reserved_value
 
     def __call__(self, state: SAOState) -> SAOResponse:
         """
@@ -59,13 +63,10 @@ class Group4(SAONegotiator):
               - If this is `None`, you are starting the negotiation now (no offers yet).
         """
         offer = state.current_offer
-        # print(state.step)
-        # print(self.nmi.n_steps)
+        print(state.step)
+        print(self.nmi.n_steps)
         self.update_partner_reserved_value(state)
-        print()
-        print(f"Agent reserved value: {self.ufun.reserved_value}")
-        print(f"Opponent reserved value: {self.partner_reserved_value}")
-        print(f"Step ratio: {self.step_ratio(state)}")
+
         # if there are no outcomes (should in theory never happen)
         if self.ufun is None:
             return SAOResponse(ResponseType.END_NEGOTIATION, None)
@@ -75,10 +76,7 @@ class Group4(SAONegotiator):
             return SAOResponse(ResponseType.ACCEPT_OFFER, offer)
 
         # If it's not acceptable, determine the counter offer in the bidding_strategy
-        bid = self.bidding_strategy(state)
-        print(f"Agent utility: {self.ufun(bid)}")
-        print(f"Opponent utility: {self.opponent_ufun(bid)}")
-        return SAOResponse(ResponseType.REJECT_OFFER, bid)
+        return SAOResponse(ResponseType.REJECT_OFFER, self.bidding_strategy(state))
 
     def acceptance_strategy(self, state: SAOState) -> bool:
         """
@@ -90,17 +88,11 @@ class Group4(SAONegotiator):
         assert self.ufun
 
         offer = state.current_offer
-        outcomes = self.get_outcomes()
-        top_outcomes = outcomes[:0.25*len(outcomes)]
         
-        utility = self.ufun(offer)
-        opp_utility = self.opponent_ufun(offer)
-        if self.step_ratio(state) > 0.9:
-            if utility > (self.ufun.reserved_value):
-                return True
+        current_offer_utility = self.ufun(offer)
+        opponent_offer_utility = self.opponent_ufun(offer)
 
-        if utility > self.ufun.reserved_value:
-            return random.choice(self.top_outcomes)
+        if self.ufun(offer) > (2 * self.ufun.reserved_value):
             return True
         return False
 
@@ -116,25 +108,25 @@ class Group4(SAONegotiator):
         # # The opponent's ufun can be accessed using self.opponent_ufun, which is not used yet.
 
         # return random.choice(self.rational_outcomes)
-        
-        outcomes = self.get_outcomes()
+        feasible_outcomes = [
+            o for o in self.rational_outcomes
+            if self.opponent_ufun(o) >= self.partner_reserved_value
+        ]
 
-        if not outcomes:
+        if not feasible_outcomes:
             # fallback: if nothing is feasible for the opponent
             # at least pick something feasible for you:
-            # feasible_outcomes = list(self.rational_outcomes)
-            # if not feasible_outcomes:
-            #     return None
-            return None
+            feasible_outcomes = list(self.rational_outcomes)
+            if not feasible_outcomes:
+                return None
 
         # Among feasible outcomes, pick the one that gives the maximum sum of utilities
-        out_len = len(outcomes)
-        bid = max(
-            outcomes[:0.25*out_len],
-            key=lambda o: 0.7 * self.ufun(o) + 0.3 * self.opponent_ufun(o)
+        best_for_both = max(
+            feasible_outcomes,
+            key=lambda o: self.ufun(o) + self.opponent_ufun(o)
         )
-        print(bid)
-        return bid
+
+        return best_for_both
 
     def update_partner_reserved_value(self, state: SAOState) -> None:
         """This is one of the functions you can implement.
@@ -143,48 +135,23 @@ class Group4(SAONegotiator):
         returns: None.
         """
         assert self.ufun and self.opponent_ufun
-        step_ratio = self.step_ratio(state)
-        
+
         offer = state.current_offer
-        self.partner_reserved_value += step_ratio * 0.1 * self.opponent_ufun(offer)
 
         if self.opponent_ufun(offer) < self.partner_reserved_value:
             self.partner_reserved_value = float(self.opponent_ufun(offer)) / 2
 
         # update rational_outcomes by removing the outcomes that are below the reservation value of the opponent
         # Watch out: if the reserved value decreases, this will not add any outcomes.
-        self.rational_outcomes = self.get_outcomes()    
-    
-
-    ######
-    # Helper functions
-
-    def step_ratio(self, state: SAOState) -> float:
-        step = state.step
-        total_steps = self.nmi.n_steps
-        return step / total_steps
-
-    def get_outcomes(self):
-        """
-        Update the liest of rational outcomes.
-        """
-
-        outcomes = [
-            x for x in self.nmi.outcome_space.enumerate_or_sample()  # enumerates outcome space when finite, samples when infinite
-            if self.ufun(x) > self.ufun.reserved_value
-        ]
-        
-        possible_outcomes = [
-            x for x in outcomes
-            if self.opponent_ufun(x) >= self.partner_reserved_value
+        rational_outcomes = self.rational_outcomes = [
+            _
+            for _ in self.rational_outcomes
+            if self.opponent_ufun(_) > self.partner_reserved_value
         ]
 
-        possible_outcomes = possible_outcomes.sort(key=lambda o: self.ufun(o), reverse=True)
 
-        return possible_outcomes
-    
 # if you want to do a very small test, use the parameter small=True here. Otherwise, you can use the default parameters.
 if __name__ == "__main__":
-    from helpers.runner import run_a_tournament
+    from .helpers.runner import run_a_tournament
 
     run_a_tournament(Group4, small=True, debug=True)
