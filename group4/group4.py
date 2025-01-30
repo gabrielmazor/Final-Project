@@ -10,6 +10,7 @@ import random
 
 from negmas.outcomes import Outcome
 from negmas.sao import ResponseType, SAONegotiator, SAOResponse, SAOState
+import time
 
 
 class Group4(SAONegotiator):
@@ -34,14 +35,10 @@ class Group4(SAONegotiator):
         if self.ufun is None:
             return
 
-        self.rational_outcomes = [
-            _
-            for _ in self.nmi.outcome_space.enumerate_or_sample()  # enumerates outcome space when finite, samples when infinite
-            if self.ufun(_) > self.ufun.reserved_value
-        ]
+        self.rational_outcomes = self.get_outcomes()
 
         # Estimate the reservation value, as a first guess, the opponent has the same reserved_value as you
-        self.partner_reserved_value = self.ufun.reserved_value
+        self.partner_reserved_value = 0
 
     def __call__(self, state: SAOState) -> SAOResponse:
         """
@@ -87,9 +84,17 @@ class Group4(SAONegotiator):
         assert self.ufun
 
         offer = state.current_offer
-
-        if self.ufun(offer) > (2 * self.ufun.reserved_value):
+        process, _, _ = self.get_step(state)
+        outcomes = self.get_outcomes()
+        best_outcomes = outcomes[:int(0.3 * len(outcomes))]
+        
+        if(offer in best_outcomes):
             return True
+        
+        if process > 0.4:
+            if self.ufun(offer) > (2 * self.ufun.reserved_value):
+                return True
+        
         return False
 
     def bidding_strategy(self, state: SAOState) -> Outcome | None:
@@ -101,8 +106,11 @@ class Group4(SAONegotiator):
         """
 
         # The opponent's ufun can be accessed using self.opponent_ufun, which is not used yet.
-
-        return random.choice(self.rational_outcomes)
+        offer = state.current_offer
+        process, _, _ = self.get_step(state)
+        outcomes = self.get_outcomes()
+        best_outcomes = outcomes[:int(0.3 * len(outcomes))]
+        return random.choice(best_outcomes)
 
     def update_partner_reserved_value(self, state: SAOState) -> None:
         """This is one of the functions you can implement.
@@ -114,20 +122,69 @@ class Group4(SAONegotiator):
 
         offer = state.current_offer
 
+
+        # If the opponent's ufun is lower than the current reserved value, 
         if self.opponent_ufun(offer) < self.partner_reserved_value:
             self.partner_reserved_value = float(self.opponent_ufun(offer)) / 2
 
         # update rational_outcomes by removing the outcomes that are below the reservation value of the opponent
         # Watch out: if the reserved value decreases, this will not add any outcomes.
-        rational_outcomes = self.rational_outcomes = [
-            _
-            for _ in self.rational_outcomes
-            if self.opponent_ufun(_) > self.partner_reserved_value
+        self.rational_outcomes = self.get_outcomes()
+
+    # Helper functions
+
+    def get_step(self, state: SAOState) -> tuple[float, int, int]:
+        step = state.step
+        total = self.nmi.n_steps
+        progress = step / total
+        return progress, step, total # check later what actually needed to return
+    
+    def get_outcomes(self): 
+        start_t = time.time()
+        outcomes = [
+            x for x in self.nmi.outcome_space.enumerate_or_sample()  # enumerates outcome space when finite, samples when infinite
+            if self.ufun(x) > self.ufun.reserved_value
         ]
+        
+        possible_outcomes = [
+            x for x in outcomes
+            if self.opponent_ufun(x) >= self.partner_reserved_value
+        ]
+
+        possible_outcomes = sorted(possible_outcomes, key=lambda o: self.ufun(o), reverse=True)
+        print(f"time to run the get_outcomes function = {time.time() - start_t}")
+        return possible_outcomes
+        
+    def track_opponent_behavior(self, state: SAOState) -> None:
+        """
+        Tracks the opponent's behavior (Conceder/Boulware) based on the last 5 offers.
+        """
+        if not hasattr(self, "opponent_offers"):
+            self.opponent_offers = []
+
+        offer = state.current_offer
+        if offer:
+            self.opponent_offers.append(self.opponent_ufun(offer))
+
+        # Keep only the last 5 offers
+        if len(self.opponent_offers) > 5:
+            self.opponent_offers.pop(0)
+
+        # Analyze the trend of concessions by the opponent
+        if len(self.opponent_offers) == 5:
+            concessions = [self.opponent_offers[i] - self.opponent_offers[i + 1] for i in range(len(self.opponent_offers)-1)]
+            avg_concession = sum(concessions) / len(concessions)
+
+            # Determine opponent's behavior
+            self.opponent_style = "Conceder" if avg_concession > 0.05 else "Boulware"
+        else:
+            self.opponent_style = None
+
+
 
 
 # if you want to do a very small test, use the parameter small=True here. Otherwise, you can use the default parameters.
 if __name__ == "__main__":
-    from .helpers.runner import run_a_tournament
+    from helpers.runner import run_a_tournament
 
-    run_a_tournament(Group4, small=True)
+    run_a_tournament(Group4, small=True, debug=True)
