@@ -115,7 +115,10 @@ class Group4(SAONegotiator):
         best_outcomes = outcomes[:int(0.2 * len(outcomes))]
         possible_outcomes = sorted(best_outcomes, key=lambda o: self.opponent_ufun(o), reverse=True)
 
+        if len(possible_outcomes) == 0:
+            return random.choice(self.rational_outcomes)
         return possible_outcomes[0]
+        
  
     def update_partner_reserved_value(self, state: SAOState) -> None:
         """This is one of the functions you can implement.
