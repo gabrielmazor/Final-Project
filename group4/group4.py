@@ -83,7 +83,7 @@ class Group4(SAONegotiator):
         assert self.ufun
 
         offer = state.current_offer
-        process, _, _ = self.get_step(state)
+        process = self.relative_time(state)
         outcomes = self.get_outcomes()
         best_outcomes = outcomes[:int(0.3 * len(outcomes))]
         
@@ -126,7 +126,7 @@ class Group4(SAONegotiator):
         assert self.ufun and self.opponent_ufun
 
         offer = state.current_offer
-        process, _, _ = self.get_step(state)
+        process = self.relative_time(state)
 
         # If the opponent's ufun is lower than the current reserved value, 
         if self.opponent_ufun(offer) < self.partner_reserved_value:
@@ -140,12 +140,12 @@ class Group4(SAONegotiator):
 
     # Helper functions
 
-    def get_step(self, state: SAOState) -> tuple[float, int, int]: # that is actually the same as self.relative_time
-        step = state.step
-        total = self.nmi.n_steps
-        progress = step / total
-        # print(f"Progress is {progress} and relative_time is {state.relative_time}")
-        return progress, step, total # check later what actually needed to return
+    # def get_step(self, state: SAOState) -> tuple[float, int, int]: # that is actually the same as self.relative_time
+    #     step = state.step
+    #     total = self.nmi.n_steps
+    #     progress = step / total
+    #     # print(f"Progress is {progress} and relative_time is {state.relative_time}")
+    #     return progress, step, total # check later what actually needed to return
     
     def get_outcomes(self): 
         outcomes = [
@@ -190,4 +190,4 @@ class Group4(SAONegotiator):
 # if you want to do a very small test, use the parameter small=True here. Otherwise, you can use the default parameters.
 if __name__ == "__main__":
     from .helpers.runner import run_a_tournament
-    run_a_tournament(Group4, small=False, debug=False)
+    run_a_tournament(Group4, small=False, debug=True)
