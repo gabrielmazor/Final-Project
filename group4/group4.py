@@ -83,7 +83,7 @@ class Group4(SAONegotiator):
         assert self.ufun
 
         offer = state.current_offer
-        process = self.relative_time(state)
+        process = self.relative_time
         outcomes = self.get_outcomes()
         best_outcomes = outcomes[:int(0.3 * len(outcomes))]
         
@@ -126,7 +126,7 @@ class Group4(SAONegotiator):
         assert self.ufun and self.opponent_ufun
 
         offer = state.current_offer
-        process = self.relative_time(state)
+        process = self.relative_time
 
         # If the opponent's ufun is lower than the current reserved value, 
         if self.opponent_ufun(offer) < self.partner_reserved_value:
