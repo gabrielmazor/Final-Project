@@ -68,8 +68,7 @@ class Group4(SAONegotiator):
         offer = state.current_offer
 
         self.update_partner_reserved_value(state)
-        print(state.step)
-        print(self.nmi.n_steps)
+
         # if there are no outcomes (should in theory never happen)
         if self.ufun is None:
             return SAOResponse(ResponseType.END_NEGOTIATION, None)
@@ -88,7 +87,7 @@ class Group4(SAONegotiator):
         """
         if not hasattr(self.ufun, "max_value"):
             self.ufun.max_value = max(self.ufun(outcome) for outcome in self.nmi.outcome_space.enumerate_or_sample())
-        print(f"!!!!!!!!!!!{self.ufun.max_value}")
+
     def acceptance_strategy(self, state: SAOState) -> bool:
         """
         This is one of the functions you need to implement.
