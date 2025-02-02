@@ -21,6 +21,8 @@ class Group4(SAONegotiator):
 
     partner_reserved_value = 0
 
+    opponent_style = ""
+
     def on_preferences_changed(self, changes):
         """
         Called when preferences change. In ANL 2024, this is equivalent with initializing the agent.
@@ -34,6 +36,7 @@ class Group4(SAONegotiator):
         if self.ufun is None:
             return
 
+        self.calculate_max_utility()
         self.rational_outcomes = [
             _
             for _ in self.nmi.outcome_space.enumerate_or_sample()  # enumerates outcome space when finite, samples when infinite
@@ -65,7 +68,8 @@ class Group4(SAONegotiator):
         offer = state.current_offer
 
         self.update_partner_reserved_value(state)
-
+        print(state.step)
+        print(self.nmi.n_steps)
         # if there are no outcomes (should in theory never happen)
         if self.ufun is None:
             return SAOResponse(ResponseType.END_NEGOTIATION, None)
@@ -77,6 +81,14 @@ class Group4(SAONegotiator):
         # If it's not acceptable, determine the counter offer in the bidding_strategy
         return SAOResponse(ResponseType.REJECT_OFFER, self.bidding_strategy(state))
 
+    def calculate_max_utility(self):
+        """
+        Calculates the maximum possible utility for the agent dynamically
+        if it is not predefined.
+        """
+        if not hasattr(self.ufun, "max_value"):
+            self.ufun.max_value = max(self.ufun(outcome) for outcome in self.nmi.outcome_space.enumerate_or_sample())
+        print(f"!!!!!!!!!!!{self.ufun.max_value}")
     def acceptance_strategy(self, state: SAOState) -> bool:
         """
         This is one of the functions you need to implement.
@@ -87,10 +99,59 @@ class Group4(SAONegotiator):
         assert self.ufun
 
         offer = state.current_offer
+        if offer is None:
+            return False
 
-        if self.ufun(offer) > (2 * self.ufun.reserved_value):
+        relative_time = state.relative_time
+        utility = self.ufun(offer)
+
+        # Dynamic acceptance threshold that decreases over time
+        time_pressure_threshold = self.ufun.reserved_value + (1 - relative_time) * (
+                    self.ufun.max_value - self.ufun.reserved_value)
+
+        # Opponent's concession impact: Check if the opponent is making large concessions
+        self.track_opponent_behavior(state)
+        if hasattr(self, "opponent_style") and self.opponent_style == "Conceder":
+            concession_bonus = 0.05  # Extra willingness to accept if the opponent concedes frequently
+            time_pressure_threshold -= concession_bonus
+
+        # Immediate acceptance for high-value offers
+        if utility >= self.ufun.max_value * 0.95:
             return True
+
+        # Accept if the offer exceeds the dynamic threshold
+        if utility >= time_pressure_threshold:
+            return True
+
         return False
+
+
+    def track_opponent_behavior(self, state: SAOState) -> None:
+        """
+        Tracks the opponent's behavior (Conceder/Boulware) based on the last 5 offers.
+        """
+        if not hasattr(self, "opponent_offers"):
+            self.opponent_offers = []
+
+        offer = state.current_offer
+        if offer:
+            self.opponent_offers.append(self.opponent_ufun(offer))
+
+        # Keep only the last 5 offers
+        if len(self.opponent_offers) > 5:
+            self.opponent_offers.pop(0)
+
+        # Analyze the trend of concessions by the opponent
+        if len(self.opponent_offers) == 5:
+            concessions = [self.opponent_offers[i] - self.opponent_offers[i + 1] for i in range(len(self.opponent_offers)-1)]
+            avg_concession = sum(concessions) / len(concessions)
+
+            # Determine opponent's behavior
+            self.opponent_style = "Conceder" if avg_concession > 0.05 else "Boulware"
+        else:
+            self.opponent_style = None
+
+
 
     def bidding_strategy(self, state: SAOState) -> Outcome | None:
         """
@@ -102,7 +163,55 @@ class Group4(SAONegotiator):
 
         # The opponent's ufun can be accessed using self.opponent_ufun, which is not used yet.
 
-        return random.choice(self.rational_outcomes)
+        assert self.ufun
+        relative_time = state.relative_time
+
+        # Calculate P0 dynamically if max_value is not defined
+        P0 = max(self.ufun(outcome) for outcome in self.nmi.outcome_space.enumerate_or_sample())
+
+        # Define aspiration points
+        P1 = (P0 + self.ufun.reserved_value) / 2  # Aspiration utility
+        P2 = self.ufun.reserved_value  # Reservation utility
+
+        # Calculate the time-dependent target utility
+        target_utility = ((1 - relative_time) ** 2 * P0 +
+                          2 * (1 - relative_time) * relative_time * P1 +
+                          (relative_time ** 2) * P2)
+
+        # Adjust weights based on opponent behavior (Tit-for-Tat)
+        self.track_opponent_behavior(state)
+        if hasattr(self, "opponent_style"):
+            if self.opponent_style == "Conceder":
+                weight_self = 0.85  # More aggressive: prioritize own utility
+                weight_opponent = 0.15
+            elif self.opponent_style == "Boulware":
+                weight_self = 0.6  # More accommodating: consider opponent's utility more
+                weight_opponent = 0.4
+            else:
+                weight_self = 0.7  # Default weights
+                weight_opponent = 0.3
+        else:
+            weight_self = 0.7
+            weight_opponent = 0.3
+
+        # Find the best outcome based on weighted utilities
+        best_outcome = None
+        best_score = float("-inf")
+        for outcome in self.rational_outcomes:
+            utility_self = self.ufun(outcome)
+            utility_opponent = self.opponent_ufun(outcome)
+            weighted_score = weight_self * utility_self + weight_opponent * utility_opponent
+
+            # Ensure the offer is close to the target utility
+            if abs(utility_self - target_utility) < 0.1 and weighted_score > best_score:
+                best_outcome = outcome
+                best_score = weighted_score
+
+        # If no outcome matches the criteria, choose the closest to the target utility
+        if not best_outcome:
+            best_outcome = min(self.rational_outcomes, key=lambda o: abs(self.ufun(o) - target_utility))
+
+        return best_outcome
 
     def update_partner_reserved_value(self, state: SAOState) -> None:
         """This is one of the functions you can implement.
@@ -114,20 +223,25 @@ class Group4(SAONegotiator):
 
         offer = state.current_offer
 
-        if self.opponent_ufun(offer) < self.partner_reserved_value:
-            self.partner_reserved_value = float(self.opponent_ufun(offer)) / 2
+        if self.opponent_style:
+            if self.opponent_style == "Boulware":
+                self.partner_reserved_value = self.opponent_ufun(offer) * 0.95
+                self.calculate_max_utility()
 
-        # update rational_outcomes by removing the outcomes that are below the reservation value of the opponent
-        # Watch out: if the reserved value decreases, this will not add any outcomes.
-        rational_outcomes = self.rational_outcomes = [
-            _
-            for _ in self.rational_outcomes
-            if self.opponent_ufun(_) > self.partner_reserved_value
-        ]
+        # if self.opponent_ufun(offer) < self.partner_reserved_value:
+        #     self.partner_reserved_value = float(self.opponent_ufun(offer)) / 2
+        #
+        # # update rational_outcomes by removing the outcomes that are below the reservation value of the opponent
+        # # Watch out: if the reserved value decreases, this will not add any outcomes.
+        # rational_outcomes = self.rational_outcomes = [
+        #     _
+        #     for _ in self.rational_outcomes
+        #     if self.opponent_ufun(_) > self.partner_reserved_value
+        # ]
 
 
 # if you want to do a very small test, use the parameter small=True here. Otherwise, you can use the default parameters.
 if __name__ == "__main__":
     from .helpers.runner import run_a_tournament
 
-    run_a_tournament(Group4, small=True)
+    run_a_tournament(Group4, small=True, debug=True)
