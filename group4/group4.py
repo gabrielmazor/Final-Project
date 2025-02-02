@@ -116,7 +116,7 @@ class Group4(SAONegotiator):
         possible_outcomes = sorted(best_outcomes, key=lambda o: self.opponent_ufun(o), reverse=True)
 
         if len(possible_outcomes) == 0:
-            return random.choice(self.rational_outcomes)
+            return None
         return possible_outcomes[0]
         
  
@@ -193,4 +193,4 @@ class Group4(SAONegotiator):
 # if you want to do a very small test, use the parameter small=True here. Otherwise, you can use the default parameters.
 if __name__ == "__main__":
     from .helpers.runner import run_a_tournament
-    run_a_tournament(Group4, small=False, debug=True)
+    run_a_tournament(Group4, small=True, debug=True)
