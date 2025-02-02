@@ -24,6 +24,7 @@ class Group4(SAONegotiator):
     opponent_reserved_value = 0.01
     opponent_style = None
     opponent_offers = []
+    opponent_avg = 1
     lowest_offer = 1
 
     exp = 1
@@ -107,9 +108,18 @@ class Group4(SAONegotiator):
         Returns: a bool.
         """
         assert self.ufun
-        tresh = self.ufun.reserved_value + (self.ufun(self.joint_outcomes[0]) - self.ufun.reserved_value) * (1-state.relative_time ** self.exp)
-
         offer = state.current_offer
+
+        tresh = self.ufun.reserved_value + (self.ufun(self.joint_outcomes[0]) - self.ufun.reserved_value) * (1-state.relative_time ** self.exp)
+        
+        if state.relative_time < 0.5:
+            if self.ufun(offer) > tresh:
+                if self.opponent_ufun(offer) < self.ufun(offer):
+                    return True
+        
+        if self.opponent_style == "Boulware":
+            if state.relative_time < 0.9:
+                return False
 
         if self.ufun(offer) > tresh:
             return True
@@ -129,7 +139,7 @@ class Group4(SAONegotiator):
             if options:
                 return options[0]
         elif self.opponent_style == "Boulware":
-            options = [o for o in self.joint_outcomes if abs(self.opponent_ufun(o) - self.lowest_offer) <= 0.05]
+            options = [o for o in self.joint_outcomes if abs(self.opponent_ufun(o) - self.lowest_offer) <= 0.1]
             options = [o for o in options if self.ufun(o) > self.opponent_ufun(o)]
             if options:
                 return options[0]
@@ -150,15 +160,22 @@ class Group4(SAONegotiator):
         assert self.ufun and self.opponent_ufun
 
         offer = state.current_offer
-
-        # Append offer to opponent offers
-        self.opponent_offers.append(self.opponent_ufun(offer))
-
+        
         # Update lowest offer
         if self.opponent_ufun(offer) < self.lowest_offer:
             self.lowest_offer = self.opponent_ufun(offer)
 
-        r = self.lowest_offer * state.relative_time * 0.6
+        # Append offer to opponent offers
+        self.opponent_offers.append(self.opponent_ufun(offer))
+        if len(self.opponent_offers) >= 5:
+            self.opponent_avg = sum(self.opponent_offers[-5:]) / 5
+        else:
+            self.opponent_avg = self.lowest_offer
+
+        if self.opponent_style == "Boulware":
+            r = self.opponent_avg * state.relative_time * 0.75
+        else:
+            r = self.opponent_avg * state.relative_time * 0.4
 
         if r >= self.opponent_reserved_value:
             self.opponent_reserved_value = r
